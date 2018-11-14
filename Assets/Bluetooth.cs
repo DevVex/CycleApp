@@ -46,6 +46,7 @@ public class SpeedCadence
     public UInt16 wheelTime = 0;
     public UInt16 cumulativeCrank = 0;
     public UInt16 crankTime = 0;
+    public float speed;
 }
 
 public class Bluetooth : MonoBehaviour
@@ -67,11 +68,18 @@ public class Bluetooth : MonoBehaviour
     private const string SPEED_CHARACTERISTIC = "2A5B";
     private const float TIMESCALE = 1024.0f;
     private const float TIRESIZE = 2170.0f; // In millimiters. 700x30
+    private const float MINIMUM_SPEED = 2.0f;
     //heart, cadence, speed
     private List<string> characteristics = new List<string>(new string[] {HEART_RATE_CHARACTERISTIC, SPEED_CHARACTERISTIC});
     private Dictionary<string, Device> devices = new Dictionary<string, Device>();
     private Dictionary<string, GameObject> devicesUi = new Dictionary<string, GameObject>();
     private SpeedCadence previousSpeedCadence = new SpeedCadence();
+
+
+    public static float speed;
+    public static float distance;
+    public static float cadence;
+    public static string heartRate;
 
     void SetState(States newState, float timeout)
     {
@@ -96,6 +104,7 @@ public class Bluetooth : MonoBehaviour
             if (error.Contains("Bluetooth LE Not Enabled"))
                 BluetoothLEHardwareInterface.BluetoothEnable(true);
         });
+        
     }
 
     void UpdateDeviceUi()
@@ -170,72 +179,93 @@ public class Bluetooth : MonoBehaviour
 
     private void SetSpeed(SpeedCadence value)
     {
-        float speed = 0.0f;
+        speed = 0.0f;
         float wheelTimeDifference = 0.0f;
 
         if (value.wheelTime >= previousSpeedCadence.wheelTime)
         {
             wheelTimeDifference = (value.wheelTime - previousSpeedCadence.wheelTime) / TIMESCALE;
         }
-        else
-        {
-            // passed the maximum value
-            wheelTimeDifference = (UInt16.MaxValue - previousSpeedCadence.wheelTime + value.wheelTime) / TIMESCALE;
-        }
+        //else
+        //{
+        //    // passed the maximum value
+        //    wheelTimeDifference = (UInt16.MaxValue - previousSpeedCadence.wheelTime + value.wheelTime) / TIMESCALE;
+        //}
 
         float cumulativeWheelDifference = value.cumulativeWheel - previousSpeedCadence.cumulativeWheel;
+        //Check if there was a change in wheel spins
         if (value.cumulativeWheel >= previousSpeedCadence.cumulativeWheel)
         {
             cumulativeWheelDifference = value.cumulativeWheel - previousSpeedCadence.cumulativeWheel;
         }
-        else
-        {
-            // passed the maximum value
-            cumulativeWheelDifference = UInt32.MaxValue - previousSpeedCadence.cumulativeWheel + value.cumulativeWheel;
+        //else
+        //{
+        //    // passed the maximum value
+        //    cumulativeWheelDifference = UInt32.MaxValue - previousSpeedCadence.cumulativeWheel + value.cumulativeWheel;
+        //}
+
+        distance = (value.cumulativeWheel * TIRESIZE) / 1000.0f; //total distance in meters
+        float distanceDifference = (cumulativeWheelDifference * TIRESIZE) / 1000.0f; //difference in distance from last time
+
+        //only update speed if there is a difference in wheel movement
+        if  (distanceDifference != 0 && wheelTimeDifference > 0) {
+            speed = (wheelTimeDifference == 0) ? 0f : distanceDifference / wheelTimeDifference * 3.6f; // m/s     3.6 = km/h   2.2369f = m/h
+
+            if(speed < previousSpeedCadence.speed && speed < MINIMUM_SPEED)
+            {
+                speed = 0f;
+            }
+            else
+            {
+                previousSpeedCadence.speed = speed;
+            }
+
+            //Speed
+            dataUiContainer.transform.GetChild(1).GetChild(1).GetComponent<Text>().text = System.Math.Round(speed, 2).ToString();
+            previousSpeedCadence.cumulativeWheel = value.cumulativeWheel;
+            previousSpeedCadence.wheelTime = value.wheelTime;
         }
 
-        float distance = (cumulativeWheelDifference * TIRESIZE) / 1000.0f; // distance in meters
-        if  (distance != 0 && wheelTimeDifference > 0) {
-            speed = (wheelTimeDifference == 0) ? 0.0f : distance / wheelTimeDifference; // m/s
-        }
-        dataUiContainer.transform.GetChild(1).GetChild(1).GetComponent<Text>().text = speed.ToString();
+        //Distance can always update
         dataUiContainer.transform.GetChild(3).GetChild(1).GetComponent<Text>().text = distance.ToString();
-
-        previousSpeedCadence.cumulativeWheel = value.cumulativeWheel;
-        previousSpeedCadence.wheelTime = value.wheelTime;
     }
 
     private void SetCadence(SpeedCadence value)
     {
 
         float crankTimeDifference = 0.0f;
-        if (value.wheelTime >= previousSpeedCadence.wheelTime)
+        if (value.crankTime >= previousSpeedCadence.crankTime)
         {
             crankTimeDifference = (value.crankTime - previousSpeedCadence.crankTime) / TIMESCALE;
         }
-        else
-        {
-            // passed the maximum value
-            crankTimeDifference = (UInt16.MaxValue - previousSpeedCadence.crankTime + value.crankTime) / TIMESCALE;
-        }
+        //else
+        //{
+        //    // passed the maximum value
+        //    crankTimeDifference = (UInt16.MaxValue - previousSpeedCadence.crankTime + value.crankTime) / TIMESCALE;
+        //}
         
         float cumulativeCrankDifference = 0.0f;
         if (value.cumulativeCrank >= previousSpeedCadence.cumulativeCrank)
         {
             cumulativeCrankDifference = value.cumulativeCrank - previousSpeedCadence.cumulativeCrank;
         }
-        else
+        //else
+        //{
+        //    // passed the maximum value
+        //    cumulativeCrankDifference = UInt16.MaxValue - previousSpeedCadence.cumulativeWheel + value.cumulativeWheel;
+        //}
+
+        if(cumulativeCrankDifference > 0)
         {
-            // passed the maximum value
-            cumulativeCrankDifference = UInt16.MaxValue - previousSpeedCadence.cumulativeWheel + value.cumulativeWheel;
+            cadence = 60.0f * cumulativeCrankDifference / crankTimeDifference; // RPM
+
+            //RPM
+            dataUiContainer.transform.GetChild(2).GetChild(1).GetComponent<Text>().text = System.Math.Round(cadence, 2).ToString();
+
+            previousSpeedCadence.cumulativeCrank = value.cumulativeCrank;
+            previousSpeedCadence.crankTime = value.crankTime;
         }
 
-        float cadence = (crankTimeDifference == 0) ? 0.0f : 60.0f * cumulativeCrankDifference / crankTimeDifference; // RPM
-
-        dataUiContainer.transform.GetChild(2).GetChild(1).GetComponent<Text>().text = cadence.ToString();
-
-        previousSpeedCadence.cumulativeCrank = value.cumulativeCrank;
-        previousSpeedCadence.crankTime = value.crankTime;
     }
 
     //string FullUUID(string uuid)
@@ -341,7 +371,6 @@ public class Bluetooth : MonoBehaviour
                         BluetoothLEHardwareInterface.StopScan();
                         BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(null, null, (address, name, rssi, bytes) =>
                         {
-                            PrintLog("Scanning Call");
                             // if your device does not advertise the rssi and manufacturer specific data
                             // then you must use this callback because the next callback only gets called
                             // if you have manufacturer specific data
@@ -440,7 +469,7 @@ public class Bluetooth : MonoBehaviour
 
                                     if(characteristic.Equals(HEART_RATE_CHARACTERISTIC))
                                     {
-                                        String heartRate = ReadHeartRate(bytes, connectedDevice);
+                                        heartRate = ReadHeartRate(bytes, connectedDevice);
                                         SetHeartRate(heartRate);
 
                                     }else if (characteristic.Equals(SPEED_CHARACTERISTIC))
@@ -455,6 +484,10 @@ public class Bluetooth : MonoBehaviour
                                         {
                                             SetCadence(speedCadence);
                                         }
+                                    }
+                                    else
+                                    {
+                                        PrintLog("Unknown: " + connectedDevice.name);
                                     }
                                     
                                 });
